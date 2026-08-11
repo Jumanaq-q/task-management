@@ -1,0 +1,24 @@
+# Local development database.
+# Runs PostgreSQL 16 in a container so you don't have to install/manage it natively.
+# `docker compose up -d` starts it; `docker compose down` stops it.
+services:
+  db:
+    image: postgres:16
+    container_name: taskmgmt-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"          # host:container — your app connects to localhost:5432
+    volumes:
+      - pgdata:/var/lib/postgresql/data   # data survives container restarts
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
