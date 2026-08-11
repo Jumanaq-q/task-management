@@ -15,7 +15,7 @@ You run three things: the database (Docker), the backend (uvicorn, port 8000), a
 From the project root:
 
 ```bash
-cp .env.example .env      # then edit the password if you like
+cp .env.example .env      
 docker compose up -d      # Postgres now listening on localhost:5432
 ```
 
