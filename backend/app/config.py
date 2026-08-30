@@ -10,10 +10,10 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # Database
-    database_url: str = "postgresql+psycopg://appuser:change_me_local_dev@localhost:5432/taskmgmt"
+    database_url: str = "postgresql+psycopg://appuser:130976@localhost:5432/taskmgmt"
 
     # Auth
-    jwt_secret: str = "change_me_to_a_long_random_string"
+    jwt_secret: str = "SIGgfCwTk9eolxHvkMv19ztxcCIOaTm8"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 240
 
@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     manager_email: str = "manager@demo.com"
     manager_password: str = "manager123"
     manager_name: str = "Team Manager"
+
+    # Optional Google Tasks integration (leave empty to disable)
+    gtasks_url: str = ""
+    gtasks_api_key: str = ""
 
 
 settings = Settings()

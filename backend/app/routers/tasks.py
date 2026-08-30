@@ -2,10 +2,11 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..database import get_db
+from ..integrations import push_to_google_tasks
 from ..models import Notification, Task, TaskAssignment, User
 from ..schemas import AssignmentOut, EmployeeOut, ReportIn, TaskCreateIn, TaskOut
 from ..security import get_current_user, require_employee, require_manager
@@ -72,6 +73,9 @@ def create_task(body: TaskCreateIn, mgr: User = Depends(require_manager), db: Se
 
     db.commit()
     db.refresh(task)
+    push_to_google_tasks(
+        task.title, task.description, task.deadline, [e.full_name for e in employees]
+    )
     return task
 
 
@@ -110,6 +114,29 @@ def list_tasks(user: User = Depends(get_current_user), db: Session = Depends(get
 def list_employees(mgr: User = Depends(require_manager), db: Session = Depends(get_db)):
     """Manager helper: who can I assign tasks to?"""
     return db.scalars(select(User).where(User.role == "Employee").order_by(User.full_name)).all()
+
+
+@router.delete("/employees/{employee_id}")
+def delete_employee(
+    employee_id: int, mgr: User = Depends(require_manager), db: Session = Depends(get_db)
+):
+    emp = db.get(User, employee_id)
+    if emp is None or emp.role != "Employee":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Employee not found")
+
+    db.execute(delete(Notification).where(Notification.user_id == employee_id))
+    db.execute(delete(TaskAssignment).where(TaskAssignment.employee_id == employee_id))
+
+    orphan_ids = db.scalars(
+        select(Task.task_id).where(~Task.assignments.any())
+    ).all()
+    if orphan_ids:
+        db.execute(delete(Notification).where(Notification.task_id.in_(orphan_ids)))
+        db.execute(delete(Task).where(Task.task_id.in_(orphan_ids)))
+
+    db.delete(emp)
+    db.commit()
+    return {"deleted": employee_id, "removed_tasks": orphan_ids}
 
 
 @router.get("/{task_id}", response_model=TaskOut)

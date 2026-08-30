@@ -28,6 +28,7 @@ export default function ManagerDashboard() {
   const [error, setError] = useState('')
   const [tab, setTab] = useState<'tasks' | 'reports'>('tasks')
   const [filter, setFilter] = useState<Filter>('All')
+  const [submitting, setSubmitting] = useState(false)
 
   async function loadAll() {
     try {
@@ -52,13 +53,29 @@ export default function ManagerDashboard() {
     setAssignees((a) => (a.includes(id) ? a.filter((x) => x !== id) : [...a, id]))
   }
 
+  async function removeEmployee(id: number, name: string) {
+    if (!window.confirm(`Are you sure? This removes ${name} from the team and deletes their tasks and history.`)) {
+      return
+    }
+    setError('')
+    try {
+      await api(`/tasks/employees/${id}`, { method: 'DELETE' })
+      setAssignees((a) => a.filter((x) => x !== id))
+      loadAll()
+    } catch (e: any) {
+      setError(e.message)
+    }
+  }
+
   async function createTask(e: FormEvent) {
     e.preventDefault()
+    if (submitting) return
     setError('')
     if (assignees.length === 0) {
       setError('Pick at least one team member')
       return
     }
+    setSubmitting(true)
     try {
       await api('/tasks', {
         method: 'POST',
@@ -78,6 +95,8 @@ export default function ManagerDashboard() {
       loadAll()
     } catch (e: any) {
       setError(e.message)
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -144,20 +163,32 @@ export default function ManagerDashboard() {
               <label className="tiny muted">Assign to</label>
               <div className="checks">
                 {employees.map((emp) => (
-                  <label key={emp.user_id} className="check">
-                    <input
-                      type="checkbox"
-                      checked={assignees.includes(emp.user_id)}
-                      onChange={() => toggleAssignee(emp.user_id)}
-                    />
-                    {emp.full_name}
-                  </label>
+                  <div key={emp.user_id} className="check">
+                    <label className="check-label">
+                      <input
+                        type="checkbox"
+                        checked={assignees.includes(emp.user_id)}
+                        onChange={() => toggleAssignee(emp.user_id)}
+                      />
+                      <span>{emp.full_name}</span>
+                    </label>
+                    <button
+                      type="button"
+                      className="del"
+                      title={`Remove ${emp.full_name} from the team`}
+                      onClick={() => removeEmployee(emp.user_id, emp.full_name)}
+                    >
+                      ✕
+                    </button>
+                  </div>
                 ))}
                 {employees.length === 0 && (
                   <div className="tiny muted">No team members have signed up yet.</div>
                 )}
               </div>
-              <button className="primary">Create &amp; Assign</button>
+              <button className="primary" disabled={submitting}>
+                {submitting ? 'Creating...' : 'Create & Assign'}
+              </button>
             </form>
           </section>
 

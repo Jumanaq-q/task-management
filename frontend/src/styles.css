@@ -243,6 +243,45 @@ button { cursor: pointer; font-family: inherit; }
 }
 .bell-msg:hover { color: var(--brand-dark); text-decoration: underline; }
 
+/* Assignee checklist */
+.checks { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
+.check {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 14px;
+  padding: 4px 6px;
+  border-radius: 8px;
+}
+.check:hover { background: var(--bg); }
+.check input { width: auto; margin: 0; flex: none; }
+.check-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+.check-label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.check .del {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  line-height: 1;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s, background 0.1s, color 0.1s;
+}
+.check:hover .del { opacity: 1; }
+.check .del:hover { background: #fff0f0; color: var(--err); }
+
 /* Messages */
 .error {
   background: #fff5f5;

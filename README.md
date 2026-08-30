@@ -1,87 +1,96 @@
-# Task Management — simple team task app
+# Task Management System
 
-One manager assigns tasks to team members; members accept → work → finish → submit a report; the manager reviews reports. In-app notifications on assignment.
+A full-stack team task management app with a serverless Google Tasks integration — built end to end as a portfolio project: React + TypeScript frontend, FastAPI backend, PostgreSQL, JWT role-based auth, and a Python Cloud Run function that syncs assignments to Google Tasks via OAuth 2.0.
 
-**Stack:** React + TypeScript (Vite) frontend · FastAPI backend · PostgreSQL (local, in Docker) · JWT auth. The database URL is a single config value, so the same code runs against a Google **Cloud SQL** instance by changing one environment variable (optional GCP showcase — no public deployment).
+![Manager dashboard](docs/screenshots/2-manager-tasks.png)
 
-You run three things: the database (Docker), the backend (uvicorn, port 8000), and the frontend (Vite, port 5173). Open **http://localhost:5173**.
+## The problem
 
----
+Small teams coordinate work through chat messages and memory. Tasks get assigned verbally, progress is invisible until someone asks, completion is never recorded, and nothing reaches the tools people actually check during the day. Managers lack a single view of who is doing what; team members lack a clear queue of what they've committed to.
 
-## Run it locally
+## The solution
 
-### 1. Start the database (Docker)
+A focused workflow app around one core loop:
 
-From the project root:
+**Manager assigns → member is notified → accepts → works → finishes → submits a report → manager reviews.**
 
-```bash
-cp .env.example .env      
-docker compose up -d      # Postgres now listening on localhost:5432
+- **Two roles, enforced server-side.** One manager account (seeded, never self-registered) and self-registered team members. Every request is authorized on the backend from a JWT — the UI's role selection is never trusted.
+- **A strict task lifecycle.** `Assigned → Accepted → In Progress → Finished → Done` with per-assignee state: one task can go to several people, each with an independent status and completion report. Out-of-order transitions are rejected by the API.
+- **In-app notifications.** Assignment writes a notification in the same transaction; clicking it jumps to the task, which must be explicitly accepted before it enters "My Tasks".
+- **Manager analytics.** Completion rate, tasks this week, overdue count, tasks-completed-per-day, and per-member workload — computed server-side from the same relational data.
+- **Google Tasks sync (serverless).** When a task is assigned, the backend calls a separately deployed Cloud Run function which creates the task in Google Tasks through the official SDK — so assignments appear on the assignee's phone, Gmail sidebar, and Calendar. The integration is feature-flagged and fail-silent: if the function is unreachable, assignment still succeeds.
+
+![Team member dashboard](docs/screenshots/4-employee-dashboard.png)
+![Analytics](docs/screenshots/3b-analytics-full.png)
+
+## Architecture
+
+```
+React + Vite (TypeScript)
+        │  HTTP + JWT
+        ▼
+FastAPI (Python) ── SQLAlchemy ──► PostgreSQL
+        │
+        │  POST /tasks + X-API-Key          (feature-flagged)
+        ▼
+Cloud Run function (Python) ── Google SDK + OAuth 2.0 ──► Google Tasks API
+                                                              │
+                                                              ▼
+                                             phone · Gmail · Calendar (auto-sync)
 ```
 
-### 2. Start the backend (FastAPI)
+The Google integration lives in its own repo/service with its own security (shared-secret header, OAuth refresh token held server-side, secrets in env vars — never in code). The database target is config-driven (`DATABASE_URL`), so the same code runs against local PostgreSQL or Cloud SQL.
+
+## Stack
+
+| Layer | Tech |
+|---|---|
+| Frontend | React 18, TypeScript, Vite, React Router |
+| Backend | FastAPI, SQLAlchemy 2, Pydantic v2, python-jose (JWT), bcrypt |
+| Database | PostgreSQL (pgAdmin for administration) |
+| Serverless | Cloud Run functions, google-api-python-client, OAuth 2.0, Cloud Build + Artifact Registry |
+| Testing | Automated API tests (22 checks) + browser end-to-end tests via Playwright (18 checks) |
+
+## Running locally
 
 ```bash
+# 1. Database — create role + db, or use docker compose up -d
+#    (schema auto-creates on first backend start; see database/schema.sql)
+
+# 2. Backend
 cd backend
-python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
+python -m venv .venv && .venv/Scripts/activate
 pip install -r requirements.txt
-# load the same DATABASE_URL/JWT_SECRET from the project-root .env:
-export $(grep -v '^#' ../.env | xargs)                # Windows PowerShell: see note below
-uvicorn app.main:app --reload
-```
+# put DATABASE_URL, JWT_SECRET (and optional GTASKS_URL/GTASKS_API_KEY) in backend/.env
+uvicorn app.main:app --reload        # api on :8000, docs at /docs
 
-The API is now at **http://localhost:8000**. Interactive docs (try every endpoint in the browser) at **http://localhost:8000/docs**.
-
-On startup the app creates the tables and seeds the single **manager** account:
-
-- **Email:** `manager@demo.com`  ·  **Password:** `manager123`  *(change these in `.env`)*
-
-Team members create their own accounts via the signup endpoint (their role is always forced to Employee — nobody can self-register as a manager).
-
-> **Windows PowerShell** doesn't use `export ... xargs`. Simplest option: copy `.env` into the `backend/` folder — `pydantic-settings` reads a local `.env` automatically.
-
-### 3. Start the frontend (React)
-
-In a third terminal:
-
-```bash
+# 3. Frontend
 cd frontend
 npm install
-npm run dev
+npm run dev                          # app on :5173
 ```
 
-Open **http://localhost:5173**. Pick a role, log in (manager is `manager@demo.com` / `manager123`; team members sign up their own accounts), and use the app. The frontend talks to the backend at `http://localhost:8000` by default — override with `VITE_API_URL` in `frontend/.env` if needed.
+Seeded manager: `manager@demo.com` / `manager123` (change in `.env`). Team members sign up in the app — their role is forced to `Employee` server-side.
 
----
+## Security notes
 
-## API overview
+- Passwords stored as bcrypt hashes only; JWT required on every protected route; roles and ownership re-checked server-side on each request.
+- Employees can only read and act on their own assignments; reports are manager-only.
+- All secrets live in environment files excluded from Git; the OAuth refresh token grants access to exactly one scope (tasks) and is revocable at any time.
 
-| Method | Path | Who | Purpose |
-|---|---|---|---|
-| POST | `/signup` | public | Employee self-registration |
-| POST | `/login` | public | Get a JWT |
-| GET | `/tasks` | any | Manager: all tasks; Employee: only theirs |
-| POST | `/tasks` | Manager | Create + assign a task (writes notifications) |
-| GET | `/tasks/employees` | Manager | List assignable employees |
-| GET | `/tasks/{id}` | Manager / assignee | Task detail |
-| PUT | `/tasks/{id}/accept` | assignee | Assigned → Accepted |
-| PUT | `/tasks/{id}/progress` | assignee | Accepted → In Progress |
-| PUT | `/tasks/{id}/finish` | assignee | In Progress → Finished |
-| POST | `/tasks/{id}/report` | assignee | Submit report (after Finished) |
-| GET | `/reports` | Manager | View submitted reports |
-| GET | `/notifications` | any | Current user's notifications |
-| PUT | `/notifications/{id}/read` | owner | Mark read |
+## What building this taught me
 
-Roles and task ownership are enforced **server-side** on every request — the UI's role choice is never trusted.
+- Diagnosing layered failures: a single "Failed to fetch" that turned out to be three stacked causes (an orphaned server process holding the port, CORS errors masking unhandled 500s, and a migration applied to the wrong database).
+- OAuth 2.0 in practice: consent screens, refresh-token lifecycles (including the 7-day expiry for testing-status apps), and publishing requirements.
+- Serverless operations: container builds failing on missing `requirements.txt` entries, IAM roles for build service accounts, reading Cloud Run logs.
 
----
+## Roadmap
 
-## Switching the database to Cloud SQL (optional)
+- Per-user Google account linking (web OAuth flow, per-user token storage)
+- Event-driven notifications via Pub/Sub (`TaskAssigned` → independent consumers)
+- Email verification and password reset
+- Cloud deployment of the app itself (Cloud Run + Cloud SQL + Firebase Hosting)
 
-Everything above uses local Docker Postgres. To point the *same code* at a Google-managed database, start the Cloud SQL Auth Proxy and change one line in `.env`:
+## Related repo
 
-```
-DATABASE_URL=postgresql+psycopg://appuser:PASSWORD@127.0.0.1:5432/taskmgmt
-```
-
-(The proxy makes the cloud DB reachable at `localhost:5432`; no code changes needed.)
+[gtasks-api](https://github.com/Jumanaq-q/gtasks-api) — the serverless Google Tasks REST API this app integrates with.
